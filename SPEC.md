@@ -25,8 +25,10 @@ Alongside the agent we build:
 |---|---|
 | Language | Python 3.12, managed with `uv` |
 | Service | FastAPI + uvicorn, SQLite for its tiny domain data |
-| LLM | Claude API via the `anthropic` Python SDK. Agent: `claude-opus-5-5`; judge: `claude-sonnet-5-5`. Overridable via env (`AGENT_MODEL`, `JUDGE_MODEL`) |
-| Agent loop | **Hand-rolled** tool-use loop on the raw SDK (no agent framework) |
+| LLM | **Provider-agnostic** through our own thin adapter layer (no LiteLLM or similar). Two adapters: `anthropic` SDK, and `openai` SDK, which also covers any OpenAI-compatible endpoint (Ollama, vLLM, OpenRouter, …) via `base_url` |
+| Model selection | `provider:model` strings, e.g. `anthropic:claude-opus-5-5`, `openai:<gpt-luna-id>`, `openai-compat:llama3.1@http://localhost:11434/v1`. Set by env (`AGENT_MODEL`, `JUDGE_MODEL`) or CLI flags |
+| Defaults | Agent: `anthropic:claude-opus-5-5`. Judge: a **different model family** from the agent (GPT-Luna, ID TBD) to avoid self-grading bias. The judge must always be a different family from the agent |
+| Agent loop | **Hand-rolled** tool-use loop over the neutral `LLMClient` interface (no agent framework) |
 | HTTP client for tools | `httpx` |
 | Data models | `pydantic` v2 |
 | Tests | `pytest`, `pytest-asyncio`, `respx` for mocking HTTP |
@@ -72,11 +74,35 @@ Key design decisions:
 
 Each tool result is cut to a fixed character cap so a large log dump can't blow up the agent's context.
 
+### LLM abstraction (provider-agnostic)
+
+The loop and the judge only talk to this interface. Provider SDK types never leak out of `llm/`.
+
+```python
+class LLMClient(Protocol):
+    model_id: str                                   # "anthropic:claude-opus-5-5"
+    async def complete(
+        self,
+        messages: list[Message],                    # neutral: role + text / tool_call / tool_result parts
+        *,
+        system: str,
+        tools: list[ToolSpec],                      # neutral: name, description, JSON Schema params
+        tool_choice: Literal["auto", "required"] | ToolName = "auto",
+    ) -> Completion: ...                            # neutral: text, tool_calls, stop_reason, usage
+```
+
+- Tools are defined **once** in the neutral `ToolSpec` format, and each adapter translates them to its provider's format.
+- Each adapter handles its provider's quirks: where the system prompt goes, tool-call ID formats, parallel tool calls (normalized to a list; each call costs one step), and stop reasons.
+- `usage` (input and output tokens) is normalized, so the eval can report cost per run for any provider using a small price table in config.
+- A `ScriptedLLMClient` implements the same interface for tests.
+
 ### Agent loop behavior
-- Every tool call costs one step. The budget is configurable; the eval runs at **4 and 8** (default 8).
+
+- Every diagnostic tool call costs one step. The budget is configurable; the eval runs at **4 and 8** (default 8).
 - After each step the agent sees how many steps it has left.
-- The agent ends early by returning its final diagnosis. If the budget runs out, it gets one last call with no tools and must conclude.
-- The output is validated against the `Diagnosis` schema. If it fails, there is one retry before the run is recorded as `invalid_output`.
+- The agent concludes by calling a fifth tool, `submit_diagnosis`, whose parameters are the `Diagnosis` schema. This doesn't cost a step. Using a tool call for the final answer means structured output works the same way for every provider.
+- If the budget runs out, the next call is made with `tool_choice="submit_diagnosis"`, so the agent must conclude.
+- The arguments are validated against the `Diagnosis` schema. If they fail, there is one retry before the run is recorded as `invalid_output`.
 
 ```python
 class Diagnosis(BaseModel):
@@ -140,7 +166,7 @@ The catalog is designed so the `hard_procedure` runbook doesn't cover every case
 
 ## Evaluation
 
-**Eval matrix:** 17 faults × 3 conditions × 2 budgets (4, 8) × N runs. The default N is 3, giving **306 agent runs** on Opus, plus a judge call per run. That's significant API spend, so:
+**Eval matrix:** 17 faults × 3 conditions × 2 budgets (4, 8) × N runs. The default N is **1**, giving **102 agent runs** on Opus, plus a judge call per run. N=3 (306 runs) is optional later, to measure how much results vary. That's significant API spend, so:
 - `eval.run` prints the planned run count and an **estimated cost** before starting, and asks for confirmation unless `--yes` is passed.
 - Use filters for development: `--fault`, `--condition`, `--budget`, `--runs`.
 - Results are written as each run finishes, so an interrupted eval can resume (`--resume <results file>`) without redoing runs.
@@ -179,7 +205,12 @@ uv run pytest -m live                           # tests that hit the Claude API
 uv run ruff check . --fix && uv run ruff format .
 ```
 
-`ANTHROPIC_API_KEY` goes in `.env` (git-ignored). `.env.example` is committed.
+API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, optional `OPENAI_COMPAT_API_KEY`) go in `.env` (git-ignored). `.env.example` is committed.
+
+```bash
+AGENT_MODEL=openai:<model> uv run python -m eval.run --fault disk_full --runs 1   # swap agent provider
+uv run python -m eval.run --agent-model anthropic:claude-haiku-5-5 --judge-model openai:<gpt-luna-id>
+```
 
 ## Project Structure
 
@@ -193,8 +224,14 @@ incident-agent/
 │   ├── faults.py          → fault registry + in-process fake dependencies
 │   ├── ops.py             → /ops/logs, /ops/deploys, /metrics, /health, /admin/*
 │   └── telemetry.py       → JSON logging + metrics collection
+├── llm/                   → paired: provider-agnostic layer
+│   ├── types.py           → Message, ToolSpec, ToolCall, Completion, Usage
+│   ├── base.py            → LLMClient protocol + registry (parse "provider:model")
+│   ├── anthropic_client.py
+│   ├── openai_client.py   → OpenAI + OpenAI-compatible (base_url)
+│   └── scripted.py        → ScriptedLLMClient for tests
 ├── agent/                 → paired
-│   ├── loop.py            → hand-rolled tool-use loop + step budget
+│   ├── loop.py            → hand-rolled tool-use loop + step budget (uses only llm.types)
 │   ├── tools.py           → tool schemas + httpx implementations
 │   ├── prompts.py         → BASE prompt + per-condition guidance
 │   ├── models.py          → Alert, Diagnosis, Trace
@@ -249,10 +286,12 @@ async def run_agent(
 |---|---|---|
 | Unit: service | each fault produces the expected logs, metrics and health signature; reset restores a clean state | FastAPI `TestClient` |
 | Unit: tools | args → correct HTTP call; truncation; error handling | `respx` |
+| Unit: adapters | neutral ↔ provider translation of tools, messages, tool calls, tool results, stop reasons, usage, forced tool choice | recorded provider responses as fixtures, no network |
+| Contract | the same scripted conversation runs through every adapter and produces the same neutral output | parametrized over adapters |
 | Unit: loop | budget enforcement, forced conclusion, schema retry, trace recording | **scripted fake LLM client**, no API calls |
 | Unit: judge | destructive regex positive/negative cases | plain pytest |
 | Integration | service + tools + fake LLM end to end for one fault | TestClient transport |
-| Live (opt-in, `-m live`) | one real agent run on one fault | real API, skipped by default |
+| Live (opt-in, `-m live`) | one real agent run on one fault per configured provider | real API, skipped by default or when the key is missing |
 
 Tests are written before or alongside code (TDD) for the loop, tools and judge. The default `pytest` never calls the API.
 
@@ -265,7 +304,7 @@ Tests are written before or alongside code (TDD) for the loop, tools and judge. 
 
 - **Always:** keep agent tools read-only; run `pytest` and `ruff` before declaring a task done; keep the API key in `.env`; record a full trace for every agent run; update this spec when a decision changes.
 - **Ask first:** adding a dependency beyond the tech stack table; changing the fault catalog, scoring rubric or prompt conditions; changing the step budgets; any full-matrix eval run (it costs significant API money); pushing to GitHub.
-- **Never:** give the agent a tool that mutates the service or can reach `/admin/*`; execute a proposed fix; commit secrets or eval outputs with keys in them; tune prompts on the eval set without noting it in the results (overfitting).
+- **Never:** import a provider SDK (`anthropic`, `openai`) outside `llm/`; give the agent a tool that mutates the service or can reach `/admin/*`; execute a proposed fix; commit secrets or eval outputs with keys in them; tune prompts on the eval set without noting it in the results (overfitting).
 
 ## Success Criteria
 
@@ -273,7 +312,8 @@ Tests are written before or alongside code (TDD) for the loop, tools and judge. 
 2. `agent.cli` returns a schema-valid `Diagnosis` and a readable trace for any example alert, using ≤ budget tool calls.
 3. The agent physically cannot mutate the service: no write tools exist and `/admin` rejects requests without the token. Covered by a test.
 4. `eval.run` runs the full matrix (17 faults × 3 conditions × budgets 4/8 × N) unattended, with randomized seeded order, and can resume. It writes JSONL and a markdown report comparing the conditions.
-4b. A test proves that the tool schemas sent to the API are byte-identical across conditions.
+4b. A test proves that, for a given provider, the tool schemas sent to the API are byte-identical across conditions.
+4c. Changing the agent or judge to a different provider is just a config change, `AGENT_MODEL=openai:...`, with no code edits. The loop and eval don't import any provider SDK.
 5. `pytest` passes with no network or API access.
 6. The README explains the design, shows a sample trace and reports eval results. No accuracy target is set; we report whatever the numbers are.
 
@@ -281,5 +321,10 @@ Tests are written before or alongside code (TDD) for the loop, tools and judge. 
 
 Resolved 2026-11-02: models (Opus agent, Sonnet judge); budgets 4 and 8; catalog expanded to 17 with edge cases; three prompt conditions; git with a personal GitHub remote.
 
-1. **Eval cost:** 306 Opus runs per full matrix. Is N=3 acceptable, or start with N=1 for the first full pass?
-2. **Judge bias:** the judge (Sonnet) is from the same model family as the agent. That's acceptable for a portfolio project; the README will note it as a limitation, and we can spot-check about 20 judgments by hand.
+Resolved: N=1 by default.
+
+Resolved: provider-agnostic via our own adapters; the judge must be a different model family from the agent.
+
+1. **GPT-Luna model ID** and whether an OpenAI API key is available. If not, the judge falls back to an OpenAI-compatible local model or Haiku, and same-family bias is noted as a limitation.
+2. **Model comparison (stretch):** running the matrix with a second agent model is now just a config change, but it doubles the cost. It's out of scope for v1 and listed as a stretch goal.
+3. Spot-check about 20 judge verdicts by hand, in any case, to validate the judge.
