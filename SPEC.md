@@ -221,7 +221,7 @@ uv run python -m eval.run --agent-models anthropic:claude-haiku-5-5 --judge-mode
 incident-agent/
 ├── SPEC.md
 ├── scope.md
-├── tasks/                 → plan.md, todo.md
+├── tasks/                 → plan.md, todo.md (local only, git-ignored)
 ├── service/               → FastAPI app (Claude builds solo)
 │   ├── main.py            → app factory, domain routes (/orders, /checkout)
 │   ├── faults.py          → fault registry + in-process fake dependencies
