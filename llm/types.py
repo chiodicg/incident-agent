@@ -15,7 +15,9 @@ TOOL_NAME_PATTERN = r"^[a-zA-Z0-9_-]{1,64}$"
 
 
 class _Frozen(BaseModel):
-    # Immutable: a recorded trace can't be altered after the fact.
+    # Immutable: a recorded trace can't be altered after the fact. Note this is shallow:
+    # fields can't be reassigned, but list/dict contents can. Convention: never mutate a
+    # message in place; build a new one.
     model_config = ConfigDict(frozen=True)
 
 
