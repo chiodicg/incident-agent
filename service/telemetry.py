@@ -212,9 +212,6 @@ class MetricStore:
             # Buckets are aligned to `now`, so the last bucket always ends at the current time.
             return n_buckets - 1 - int((now - ts) / width)
 
-        def bucket_time(i: int) -> str:
-            return (now - width * (n_buckets - 1 - i)).isoformat()
-
         requests: list[list[RequestSample]] = [[] for _ in range(n_buckets)]
         for r in self._requests:
             if (i := bucket_of(r.ts)) is not None:
@@ -229,7 +226,7 @@ class MetricStore:
             elif name == "request_rate":
                 values = [len(b) / bucket_minutes for b in requests]
             elif name == "upstream_status_counts":
-                metrics[name] = self._upstream_summary(bucket_of, bucket_time, n_buckets)
+                metrics[name] = self._upstream_summary(bucket_of, n_buckets)
                 continue
             else:
                 gauge: list[list[float]] = [[] for _ in range(n_buckets)]
@@ -237,16 +234,20 @@ class MetricStore:
                     if (i := bucket_of(ts)) is not None:
                         gauge[i].append(v)
                 values = [sum(b) / len(b) if b else None for b in gauge]
-            metrics[name] = _series(values, bucket_time, GAUGES.get(name) or DERIVED[name])
+            metrics[name] = _series(values, GAUGES.get(name) or DERIVED[name])
 
         return {
             "now": now.isoformat(),
             "window_minutes": window_minutes,
             "bucket_minutes": bucket_minutes,
+            # Listed once; every metric's `series` is aligned to these bucket end times.
+            "bucket_ends": [
+                (now - width * (n_buckets - 1 - i)).strftime("%H:%M") for i in range(n_buckets)
+            ],
             "metrics": metrics,
         }
 
-    def _upstream_summary(self, bucket_of: Any, bucket_time: Any, n_buckets: int) -> dict:
+    def _upstream_summary(self, bucket_of: Any, n_buckets: int) -> dict:
         buckets: list[dict[str, int]] = [{} for _ in range(n_buckets)]
         totals: dict[str, int] = {}
         for ts, status in self._upstream:
@@ -257,11 +258,11 @@ class MetricStore:
         return {
             "unit": "count",
             "totals": totals,
-            "series": [{"t": bucket_time(i), "counts": b} for i, b in enumerate(buckets)],
+            "series": buckets,
         }
 
 
-def _series(values: list[float | None], bucket_time: Any, unit: str) -> dict[str, Any]:
+def _series(values: list[float | None], unit: str) -> dict[str, Any]:
     present = [v for v in values if v is not None]
     return {
         "unit": unit,
@@ -269,7 +270,7 @@ def _series(values: list[float | None], bucket_time: Any, unit: str) -> dict[str
         "min": _round(min(present)) if present else None,
         "max": _round(max(present)) if present else None,
         "mean": _round(sum(present) / len(present)) if present else None,
-        "series": [{"t": bucket_time(i), "value": _round(v)} for i, v in enumerate(values)],
+        "series": [_round(v) for v in values],
     }
 
 
