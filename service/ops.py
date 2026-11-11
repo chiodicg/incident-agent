@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from service.faults import FAULTS, UnknownFaultError, trigger
 from service.state import Deploy, ServiceState, build_state
 from service.telemetry import LogLevel, UnknownMetricError
 
@@ -105,6 +106,23 @@ class AdvanceClock(BaseModel):
 def advance_clock(body: AdvanceClock, state: State) -> dict[str, str]:
     state.clock.advance(body.seconds)
     return {"now": state.clock.now().isoformat()}
+
+
+@admin_router.get("/faults")
+def list_faults(state: State) -> dict[str, Any]:
+    return {
+        "available": {name: f.description for name, f in FAULTS.items()},
+        "active": sorted(state.active_faults),
+    }
+
+
+@admin_router.post("/faults/{name}")
+def trigger_fault(name: str, state: State) -> dict[str, Any]:
+    try:
+        trigger(state, name)
+    except UnknownFaultError as exc:
+        raise HTTPException(status_code=404, detail=f"unknown fault {name!r}") from exc
+    return {"status": "triggered", "active": sorted(state.active_faults)}
 
 
 @admin_router.post("/deploys")

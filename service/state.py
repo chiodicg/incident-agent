@@ -85,6 +85,7 @@ class ServiceState:
     cache: Cache
     payments: PaymentUpstream
     host: Host
+    active_faults: set[str] = field(default_factory=set)
 
 
 def build_state(settings: Settings) -> ServiceState:
