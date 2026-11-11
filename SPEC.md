@@ -31,6 +31,7 @@ Alongside the agent we build:
 | Agent loop | **Hand-rolled** tool-use loop over the neutral `LLMClient` interface (no agent framework) |
 | HTTP client for tools | `httpx` |
 | Data models | `pydantic` v2 |
+| Config | `python-dotenv` (loads `.env`) |
 | Tests | `pytest`, `pytest-asyncio`, `respx` for mocking HTTP |
 | Lint/format | `ruff` |
 | Packaging/run | `docker compose` for the service (optional; plain `uvicorn` also works) |
@@ -83,7 +84,7 @@ class LLMClient(Protocol):
     model_id: str                                   # "anthropic:claude-opus-5-5"
     async def complete(
         self,
-        messages: list[Message],                    # neutral: role + text / tool_call / tool_result parts
+        messages: list[Message],                    # neutral: role user|assistant|tool + parts
         *,
         system: str,
         tools: list[ToolSpec],                      # neutral: name, description, JSON Schema params
@@ -91,6 +92,7 @@ class LLMClient(Protocol):
     ) -> Completion: ...                            # neutral: text, tool_calls, stop_reason, usage
 ```
 
+- Messages have three roles: `user`, `assistant` and `tool`. Tool results live in their own `tool`-role messages, never mixed into `user` messages, so traces show clearly what the agent was told and what the tools returned. The Anthropic adapter merges them into `user` messages on the way out.
 - Tools are defined **once** in the neutral `ToolSpec` format, and each adapter translates them to its provider's format.
 - Each adapter handles its provider's quirks: where the system prompt goes, tool-call ID formats, parallel tool calls (normalized to a list; each call costs one step), and stop reasons.
 - `usage` (input and output tokens) is normalized, so the eval can report cost per run for any provider using a small price table in config.
