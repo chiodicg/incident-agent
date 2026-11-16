@@ -139,6 +139,14 @@ Rules that keep the comparison clean:
 
 The question the write-up answers: did guidance reduce steps, did it reduce destructive proposals, and did it cost anything on faults the unguided agent would have found? We expect the answer to be mixed, and the README reports it as it is.
 
+### Design notes (expected effects, for the write-up)
+
+Intended design choices that the results should be read against. Don't "fix" them without updating this note.
+
+1. **No "this may be a false alarm" hint anywhere.** Fault 12 tests whether the agent can conclude from evidence that nothing is wrong. `no_incident` appears only as an option in the `submit_diagnosis` schema. Advice like "confirm the alert is real" is *how-to-investigate* guidance. It is kept out of v1 so each condition changes exactly one thing (possible later: a separate `soft_prior_verify` condition).
+2. **`hard_procedure` at budget 4 leaves zero free steps.** The procedure has exactly 4 steps (deploys → health → logs → metrics), so at budget 4 the agent cannot adapt. At budget 8 it has 4 free steps. Comparing the two budgets shows *the cost of rigidity under tight resources*. Expect wasted steps on faults 13 (health lies) and 16 (logs broken). The order is prompted, not enforced: also report the **procedure adherence rate** from the traces.
+3. **The red herring (fault 11) is a deliberate trap for deploys-first.** The agent sees an innocent deploy first, so the test is anchoring and whether it updates when `check_health` shows `db: down`. A rollback proposed without evidence counts as destructive. Balanced by faults 1 and 2 (real bad deploys), where deploys-first is the fastest route. The catalog has faults that favor each strategy, so the result should be mixed.
+
 ## Fault Catalog (draft, 17 scenarios)
 
 Each fault defines: a trigger, the alert text the eval sends, the true root-cause category, a reference explanation for the judge, and the **cheapest diagnostic path** (used as a reference for step efficiency).
