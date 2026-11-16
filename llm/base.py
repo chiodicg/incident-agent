@@ -9,7 +9,7 @@ Model strings look like:
 from __future__ import annotations
 
 import importlib
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
@@ -29,6 +29,7 @@ PROVIDERS: dict[str, str] = {
 @runtime_checkable
 class LLMClient(Protocol):
     model_id: str  # the original "provider:model" string, recorded in traces
+    config: dict[str, Any]  # effective settings (e.g. reasoning), recorded in traces
 
     async def complete(
         self,
@@ -38,11 +39,20 @@ class LLMClient(Protocol):
         tools: list[ToolSpec],
         tool_choice: ToolChoice = "auto",
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        parallel_tool_calls: bool = False,
     ) -> Completion: ...
 
 
 class UnknownProviderError(ValueError):
     pass
+
+
+class LLMProviderError(Exception):
+    """A provider call failed (network, rate limit after retries, 5xx, ...).
+
+    Adapters wrap their SDK's exceptions in this, so callers can tell infrastructure
+    failures apart from bugs without importing any provider SDK.
+    """
 
 
 class ModelRef(BaseModel):

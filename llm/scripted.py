@@ -17,6 +17,7 @@ class RecordedCall(BaseModel):
     system: str
     tools: list[ToolSpec]
     tool_choice: ToolChoice = "auto"
+    parallel_tool_calls: bool = False
 
 
 ScriptStep = Completion | Callable[[RecordedCall], Completion]
@@ -29,6 +30,7 @@ class ScriptExhaustedError(AssertionError):
 class ScriptedLLMClient:
     def __init__(self, script: Sequence[ScriptStep], model_id: str = "scripted:test") -> None:
         self.model_id = model_id
+        self.config: dict = {"scripted": True}
         self._script = list(script)
         self.calls: list[RecordedCall] = []
 
@@ -40,9 +42,14 @@ class ScriptedLLMClient:
         tools: list[ToolSpec],
         tool_choice: ToolChoice = "auto",
         max_tokens: int = DEFAULT_MAX_TOKENS,
+        parallel_tool_calls: bool = False,
     ) -> Completion:
         call = RecordedCall(
-            messages=list(messages), system=system, tools=list(tools), tool_choice=tool_choice
+            messages=list(messages),
+            system=system,
+            tools=list(tools),
+            tool_choice=tool_choice,
+            parallel_tool_calls=parallel_tool_calls,
         )
         self.calls.append(call)
         if len(self.calls) > len(self._script):

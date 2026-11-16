@@ -171,7 +171,9 @@ class ToolBox:
         try:
             args = tool.args.model_validate(call.arguments)
         except ValidationError as exc:
-            return _error(call, f"Invalid arguments for {call.name}: {_brief(exc)}")
+            return _error(
+                call, f"Invalid arguments for {call.name}: {format_validation_error(exc)}"
+            )
 
         params = args.model_dump(exclude_none=True)
         try:
@@ -221,7 +223,7 @@ def _pretty(response: httpx.Response) -> str:
         return response.text
 
 
-def _brief(exc: ValidationError) -> str:
+def format_validation_error(exc: ValidationError) -> str:
     return "; ".join(
         f"{'.'.join(map(str, e['loc'])) or '(root)'}: {e['msg']}" for e in exc.errors()
     )
