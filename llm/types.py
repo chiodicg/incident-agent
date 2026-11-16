@@ -43,14 +43,30 @@ class ToolResultPart(_Frozen):
     is_error: bool = False
 
 
-Part = Annotated[TextPart | ToolCallPart | ToolResultPart, Field(discriminator="type")]
-OutputPart = Annotated[TextPart | ToolCallPart, Field(discriminator="type")]
+class ReasoningPart(_Frozen):
+    """Model reasoning (e.g. Anthropic thinking blocks, OpenAI reasoning items).
+
+    `data` is the provider's original block, replayed unchanged on later turns (providers
+    reject edited or dropped reasoning). Adapters for other providers skip it. `text` is a
+    human-readable summary for traces; it may be empty.
+    """
+
+    type: Literal["reasoning"] = "reasoning"
+    provider: str
+    text: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+Part = Annotated[
+    TextPart | ToolCallPart | ToolResultPart | ReasoningPart, Field(discriminator="type")
+]
+OutputPart = Annotated[TextPart | ToolCallPart | ReasoningPart, Field(discriminator="type")]
 
 Role = Literal["user", "assistant", "tool"]
 
 ALLOWED_PARTS: dict[str, tuple[type[BaseModel], ...]] = {
     "user": (TextPart,),
-    "assistant": (TextPart, ToolCallPart),
+    "assistant": (TextPart, ToolCallPart, ReasoningPart),
     "tool": (ToolResultPart,),
 }
 
@@ -98,17 +114,21 @@ ToolChoice = Literal["auto", "required"] | ForceTool
 
 # --- Completions -----------------------------------------------------------------------------
 
-StopReason = Literal["tool_use", "end_turn", "max_tokens", "other"]
+StopReason = Literal["tool_use", "end_turn", "max_tokens", "refusal", "other"]
 
 
 class Usage(_Frozen):
-    input_tokens: NonNegativeInt
-    output_tokens: NonNegativeInt
+    input_tokens: NonNegativeInt  # uncached input
+    output_tokens: NonNegativeInt  # includes reasoning tokens
+    cache_read_tokens: NonNegativeInt = 0
+    cache_write_tokens: NonNegativeInt = 0
 
     def __add__(self, other: Usage) -> Usage:
         return Usage(
             input_tokens=self.input_tokens + other.input_tokens,
             output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
         )
 
 
@@ -120,6 +140,10 @@ class Completion(_Frozen):
     @property
     def text(self) -> str:
         return "".join(p.text for p in self.parts if isinstance(p, TextPart))
+
+    @property
+    def reasoning(self) -> str:
+        return "\n".join(p.text for p in self.parts if isinstance(p, ReasoningPart) and p.text)
 
     @property
     def tool_calls(self) -> list[ToolCallPart]:

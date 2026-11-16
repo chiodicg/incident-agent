@@ -285,3 +285,25 @@ async def test_provider_error_returns_partial_trace() -> None:
 async def test_bugs_are_not_swallowed_as_provider_errors() -> None:
     with pytest.raises(ScriptExhaustedError):
         await run([tool("check_health")])  # script ends before the agent submits
+
+
+async def test_refusal_ends_the_run() -> None:
+    refusal = Completion(parts=[], stop_reason="refusal", usage=USAGE)
+    trace, client = await run([tool("check_health"), refusal])
+    assert trace.outcome == "refused"
+    assert trace.diagnosis is None
+    assert len(client.calls) == 2
+
+
+async def test_reasoning_summary_is_recorded_per_step() -> None:
+    from llm.types import ReasoningPart
+
+    thinking = ReasoningPart(provider="anthropic", text="DB errors likely.", data={"x": 1})
+    step = Completion(
+        parts=[thinking, ToolCallPart(id="r1", name="check_health")],
+        stop_reason="tool_use",
+        usage=USAGE,
+    )
+    trace, client = await run([step, submit()])
+    assert trace.steps[0].reasoning == "DB errors likely."
+    assert client.calls[1].messages[1].parts[0] == thinking  # replayed unchanged

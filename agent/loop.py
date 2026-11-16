@@ -92,6 +92,10 @@ class _Run:
         max_calls = self.trace.budget + EXTRA_MODEL_CALLS
         while len(self.trace.model_calls) < max_calls:
             completion = await self._call_model()
+            if completion.stop_reason == "refusal":
+                self.trace.outcome = "refused"
+                self.trace.events.append("refused: provider declined the request")
+                break
             if completion.tool_calls:
                 done = await self._handle_tool_calls(completion)
             else:
@@ -148,7 +152,7 @@ class _Run:
             self.trace.events.append(f"not executed: {first.name} called while submit was forced")
             result = _refuse(first, NOT_EXECUTED_FORCED)
         else:
-            result = await self._run_diagnostic(first, completion.text)
+            result = await self._run_diagnostic(first, completion)
 
         results = [result]
         for call in extra:  # every call needs a result, or providers reject the next request
@@ -157,7 +161,7 @@ class _Run:
         self.messages.append(Message(role="tool", parts=results))
         return False
 
-    async def _run_diagnostic(self, call: ToolCallPart, assistant_text: str) -> ToolResultPart:
+    async def _run_diagnostic(self, call: ToolCallPart, completion: Completion) -> ToolResultPart:
         result = await self.tools.run(call)
         self.trace.steps.append(
             ToolStep(
@@ -166,7 +170,8 @@ class _Run:
                 arguments=call.arguments,
                 result=result.content,
                 is_error=result.is_error,
-                assistant_text=assistant_text,
+                assistant_text=completion.text,
+                reasoning=completion.reasoning,
             )
         )
         remaining = self.trace.budget - self.trace.steps_used

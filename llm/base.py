@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict
 
 from llm.types import Completion, Message, ToolChoice, ToolSpec
 
-DEFAULT_MAX_TOKENS = 4096
+DEFAULT_MAX_TOKENS = 16000  # leaves room for adaptive thinking
 
 # provider -> module exposing `create(ref: ModelRef) -> LLMClient`. Imported lazily so a
 # missing optional SDK only matters when that provider is actually used.

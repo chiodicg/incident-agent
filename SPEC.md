@@ -97,6 +97,10 @@ class LLMClient(Protocol):
 - Each adapter handles its provider's quirks: where the system prompt goes, tool-call ID formats, parallel tool calls (normalized to a list; each call costs one step), and stop reasons.
 - `usage` (input and output tokens) is normalized, so the eval can report cost per run for any provider using a small price table in config.
 - A `ScriptedLLMClient` implements the same interface for tests.
+- **Reasoning passthrough:** provider reasoning (Anthropic thinking blocks, OpenAI reasoning items) comes back as `ReasoningPart`. Its `data` is replayed unchanged on later turns, because providers require an append-only history. Its `text` (a summary, if any) goes into the trace. Adapters skip reasoning parts from other providers.
+- **Forced tool choice on Claude 5.5-generation models:** Opus 5.5 and Sonnet 5.5 reject forced `tool_choice` (HTTP 400). The adapter degrades `ForceTool` to `auto`; the loop already instructs the model in text and refuses non-submit calls. Recorded as `forced_tool_choice: emulated` in the trace config.
+- **No server-side refusal fallbacks.** They would silently swap the model mid-run and confound the model comparison. A refusal ends the run with outcome `refused`.
+- **Anthropic settings:** adaptive thinking at the provider-default effort (Opus 5.5: medium), with `display: "summarized"` (visibility only), automatic prompt caching, SDK retries ×4. Rate limits, 5xx and network errors become `LLMProviderError` (outcome `error`). Other 4xx errors propagate, because they are bugs.
 
 ### Agent loop behavior
 

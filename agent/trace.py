@@ -14,6 +14,7 @@ Outcome = Literal[
     "submitted_after_force",  # submitted only once submit_diagnosis was forced
     "invalid_output",  # submission failed validation twice
     "no_submission",  # never produced a submission (ignored forcing / call limit hit)
+    "refused",  # the provider's safety system declined the request
     "error",  # infrastructure failure (e.g. provider API error); details in events
 ]
 
@@ -26,7 +27,8 @@ class ToolStep(BaseModel):
     arguments: dict[str, Any]
     result: str
     is_error: bool
-    assistant_text: str  # what the model said in the same turn (its stated reasoning)
+    assistant_text: str  # what the model said in the same turn
+    reasoning: str = ""  # reasoning summary from the same turn, if the provider returns one
 
 
 class ModelCall(BaseModel):

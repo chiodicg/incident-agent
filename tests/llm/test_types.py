@@ -11,6 +11,7 @@ from llm.types import (
     Completion,
     ForceTool,
     Message,
+    ReasoningPart,
     TextPart,
     ToolCallPart,
     ToolResultPart,
@@ -155,3 +156,39 @@ def test_usage_adds_up_across_calls() -> None:
 def test_usage_rejects_negative_tokens() -> None:
     with pytest.raises(ValidationError):
         Usage(input_tokens=-1, output_tokens=0)
+
+
+# --- Reasoning passthrough -------------------------------------------------------------------
+
+THINKING = ReasoningPart(
+    provider="anthropic",
+    text="Health first.",
+    data={"type": "thinking", "thinking": "Health first.", "signature": "sig"},
+)
+
+
+def test_reasoning_part_allowed_in_assistant_messages_and_completions() -> None:
+    msg = Message(role="assistant", parts=[THINKING, CALL])
+    assert Message.model_validate_json(msg.model_dump_json()) == msg
+
+    completion = Completion(
+        parts=[THINKING, TextPart(text="Checking."), CALL],
+        stop_reason="tool_use",
+        usage=Usage(input_tokens=1, output_tokens=1),
+    )
+    assert completion.reasoning == "Health first."
+    assert completion.text == "Checking."  # reasoning is not part of the visible text
+    assert completion.to_message().parts[0] == THINKING
+
+
+@pytest.mark.parametrize("role", ["user", "tool"])
+def test_reasoning_only_in_assistant_messages(role: str) -> None:
+    with pytest.raises(ValidationError):
+        Message(role=role, parts=[THINKING])
+
+
+def test_usage_tracks_cache_tokens() -> None:
+    total = Usage(input_tokens=1, output_tokens=1, cache_read_tokens=5) + Usage(
+        input_tokens=1, output_tokens=1, cache_write_tokens=7
+    )
+    assert (total.cache_read_tokens, total.cache_write_tokens) == (5, 7)
