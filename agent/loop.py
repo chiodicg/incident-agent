@@ -145,7 +145,7 @@ class _Run:
         first, *extra = completion.tool_calls
 
         if first.name == SUBMIT_TOOL:
-            result, done = self._accept_submission(first)
+            result, done = self._accept_submission(first, completion)
             if done:
                 return True
         elif self.forced:
@@ -181,7 +181,9 @@ class _Run:
         # New part rather than mutation: the raw result stays in the ToolStep above.
         return result.model_copy(update={"content": f"{result.content}\n{steps_footer(remaining)}"})
 
-    def _accept_submission(self, call: ToolCallPart) -> tuple[ToolResultPart, bool]:
+    def _accept_submission(
+        self, call: ToolCallPart, completion: Completion
+    ) -> tuple[ToolResultPart, bool]:
         """Returns (result for the model, run is over)."""
         try:
             diagnosis = Diagnosis.model_validate(call.arguments)
@@ -196,6 +198,7 @@ class _Run:
             return _refuse(call, message + "Fix it and call submit_diagnosis again."), False
 
         self.trace.diagnosis = diagnosis
+        self.trace.submission_reasoning = completion.reasoning
         self.trace.outcome = "submitted_after_force" if self.force_reason else "submitted"
         return ToolResultPart(call_id=call.id, content="Diagnosis recorded."), True
 

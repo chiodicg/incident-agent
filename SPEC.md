@@ -214,6 +214,8 @@ Per run, we record:
 
 **Why two judges:** comparing a Claude agent with a GPT agent means any single judge shares a family with one of them. Having both judges grade everything makes the design symmetric, and it turns judge bias into something we measure instead of a hidden confound. Category accuracy, the primary metric, is deterministic and doesn't use a judge. We also spot-check about 20 judgments by hand to calibrate the rubric.
 
+**Judges never see reasoning text.** Judges receive the alert, the diagnosis, and the tool calls with their results, which every provider produces in the same form. They don't receive reasoning summaries (`ToolStep.reasoning`, `Trace.submission_reasoning`), because providers expose very different amounts of reasoning (Opus summarizes only when it chooses to think; Luna's summaries are often empty or generic). Grading them would reward verbosity of exposure, not diagnosis. Reasoning stays in traces for human reading and README examples only.
+
 ## Commands
 
 ```bash

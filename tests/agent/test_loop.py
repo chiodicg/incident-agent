@@ -307,3 +307,14 @@ async def test_reasoning_summary_is_recorded_per_step() -> None:
     trace, client = await run([step, submit()])
     assert trace.steps[0].reasoning == "DB errors likely."
     assert client.calls[1].messages[1].parts[0] == thinking  # replayed unchanged
+
+
+async def test_submission_reasoning_is_recorded() -> None:
+    from llm.types import ReasoningPart
+
+    thinking = ReasoningPart(provider="openai", text="Health says db down; submit.")
+    final = submit()
+    final = final.model_copy(update={"parts": [thinking, *final.parts]})
+    trace, _ = await run([tool("check_health"), final])
+    assert trace.outcome == "submitted"
+    assert trace.submission_reasoning == "Health says db down; submit."

@@ -57,7 +57,10 @@ def format_trace(trace: Trace, preview_chars: int = RESULT_PREVIEW_CHARS) -> str
         f"cache_write={usage.cache_write_tokens} out={usage.output_tokens}",
     ]
     if trace.diagnosis is not None:
-        lines += ["", "diagnosis:", trace.diagnosis.model_dump_json(indent=2)]
+        lines += ["", "diagnosis:"]
+        if trace.submission_reasoning:
+            lines.append(_indent("reasoning: " + trace.submission_reasoning))
+        lines.append(trace.diagnosis.model_dump_json(indent=2))
     return "\n".join(lines)
 
 

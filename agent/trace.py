@@ -49,6 +49,9 @@ class Trace(BaseModel):
     model_calls: list[ModelCall] = []
     events: list[str] = []  # nudges, forcing, dropped calls, validation failures
     diagnosis: Diagnosis | None = None
+    # Reasoning summary from the turn that submitted. Like ToolStep.reasoning, it is for
+    # humans only: providers expose different amounts of reasoning, so judges never see it.
+    submission_reasoning: str = ""
     outcome: Outcome = "no_submission"
 
     @property
