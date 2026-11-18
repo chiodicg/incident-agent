@@ -341,6 +341,11 @@ Tests are written before or alongside code (TDD) for the loop, tools and judge. 
 5. `pytest` passes with no network or API access.
 6. The README explains the design, shows a sample trace and reports eval results. No accuracy target is set; we report whatever the numbers are.
 
+### Stretch experiments (after the main eval, not in the 204-run matrix)
+
+- **`soft_prior_verify` condition:** `soft_prior` plus "confirm the alert is real", to measure the effect of verification advice on fault 12 (see design note 1).
+- **No reasoning replay (ablation):** drop `ReasoningPart`s from the history (keep text, tool calls and results) and compare root-cause accuracy and steps used against normal runs. This measures how much replayed reasoning matters to multi-step diagnosis, instead of assuming it. It is the gap that choosing the Responses API over Chat Completions avoids. It would be implemented as a loop flag, so both providers are affected equally.
+
 ## Open Questions
 
 Resolved 2026-11-02: models (Opus agent, Sonnet judge); budgets 4 and 8; catalog expanded to 17 with edge cases; three prompt conditions; git with a personal GitHub remote.
