@@ -62,7 +62,9 @@ Alongside the agent we build:
 Key design decisions:
 - **Faults are simulated inside the service process.** "DB", "cache" and "payment provider" are in-process fakes with failure modes we can switch on. That makes every fault deterministic and resettable, with no real infrastructure to break.
 - **The agent only sees the service through four read-only tools.** It has no access to the fault registry or `/admin/*`. Those are blocked unless a request carries an admin token that the agent never gets.
-- **Load generation** is part of the eval. After a fault is seeded, a short burst of synthetic traffic produces realistic logs and metrics before the alert fires.
+- **Load generation** is part of the eval (`eval/load.py`). Seeding a scenario runs `POST /admin/reset {seed}`, then 30 simulated minutes of traffic with background noise, then a live burst, after which the alert fires (09:30 sim time). Scheduled deploys are recorded at their minute, and the faults are triggered `onset_minutes` (default 5) before the alert. Everything goes over HTTP, so symptoms come from real request handling, and the same code seeds an in-process app or a running server. The same seed gives byte-identical telemetry. Manual use: `uv run python -m eval.load db_down --seed 3`.
+- **Background noise** is injected with `POST /admin/logs` (admin only): unrelated warnings such as client disconnects, deprecated headers, a retried-then-succeeded payment poll, slightly slow requests and cache evictions, plus normal 404s from stale links. A test checks that no noise line matches any scenario's decisive evidence. Noise does **not** include recent deploys, because that would turn every scenario into fault 11, the red herring.
+- **No data is not zero.** Metric buckets from before the service started return `null`, not `0`, so a long `window_minutes` doesn't look like an outage before the simulated history begins.
 
 ### Agent tools (contract)
 

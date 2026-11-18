@@ -149,6 +149,7 @@ def test_health_reports_down_component(client: TestClient) -> None:
 
 
 def test_agent_probes_are_not_recorded_as_traffic(client: TestClient) -> None:
+    client.post("/admin/clock/advance", json={"seconds": 120}, headers=ADMIN)
     client.get("/health")
     client.get("/metrics")
     client.get("/ops/logs")
@@ -208,3 +209,37 @@ def test_reset_restores_clean_state(client: TestClient) -> None:
     assert client.get("/orders").json() == []
     assert client.get("/ops/logs", params={"since_minutes": 60}).json()["count"] == 1
     assert len(client.get("/ops/deploys").json()["deploys"]) == 3
+
+
+def test_reset_with_seed_replays_identically() -> None:
+    def run(seed: int) -> list:
+        with TestClient(create_app(Settings(admin_token=TOKEN, seed=0))) as c:
+            assert c.post("/admin/reset", json={"seed": seed}, headers=ADMIN).json()["seed"] == seed
+            for _ in range(5):
+                c.get("/orders")
+            return [r["msg"] for r in c.get("/ops/logs").json()["logs"]]
+
+    assert run(11) == run(11)
+    assert run(11) != run(12)
+
+
+def test_reset_without_body_keeps_the_seed(client: TestClient) -> None:
+    assert client.post("/admin/reset", headers=ADMIN).json()["seed"] == 1  # fixture's seed
+
+
+def test_injected_log_appears_in_ops_logs(client: TestClient) -> None:
+    body = {"level": "WARNING", "msg": "client disconnected", "route": "/orders"}
+    assert client.post("/admin/logs", json=body).status_code == 401
+    assert client.post("/admin/logs", json=body, headers=ADMIN).status_code == 201
+    logs = client.get("/ops/logs", params={"level": "WARNING"}).json()["logs"]
+    assert logs[0]["msg"] == "client disconnected"
+    assert logs[0]["route"] == "/orders"
+
+
+def test_request_rate_has_no_data_before_collection_started(client: TestClient) -> None:
+    client.post("/admin/clock/advance", json={"seconds": 180}, headers=ADMIN)
+    for _ in range(6):
+        client.get("/orders")
+    rate = client.get("/metrics", params={"names": "request_rate", "window_minutes": 6}).json()
+    # 1-minute buckets: three before the service started (no data), then 0, 0 and 6 req/min
+    assert rate["metrics"]["request_rate"]["series"] == [None, None, None, 0.0, 0.0, 6.0]

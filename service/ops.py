@@ -92,10 +92,21 @@ def require_admin(request: Request, x_admin_token: Annotated[str | None, Header(
 admin_router = APIRouter(prefix="/admin", dependencies=[Depends(require_admin)])
 
 
+class ResetRequest(BaseModel):
+    seed: int | None = None  # reseed the service RNG, so a scenario replays identically
+
+
 @admin_router.post("/reset")
-def reset(request: Request) -> dict[str, str]:
-    request.app.state.svc = build_state(request.app.state.svc.settings)
-    return {"status": "reset", "now": request.app.state.svc.clock.now().isoformat()}
+def reset(request: Request, body: ResetRequest | None = None) -> dict[str, Any]:
+    settings = request.app.state.svc.settings
+    if body is not None and body.seed is not None:
+        settings = settings.model_copy(update={"seed": body.seed})
+    request.app.state.svc = build_state(settings)
+    return {
+        "status": "reset",
+        "seed": settings.seed,
+        "now": request.app.state.svc.clock.now().isoformat(),
+    }
 
 
 class AdvanceClock(BaseModel):
@@ -129,3 +140,18 @@ def trigger_fault(name: str, state: State) -> dict[str, Any]:
 def record_deploy(deploy: Deploy, state: State) -> dict[str, str]:
     state.deploys.record(deploy)
     return {"status": "recorded", "version": deploy.version}
+
+
+class InjectLog(BaseModel):
+    """A log line from outside request handling (background noise in scenarios)."""
+
+    level: LogLevel
+    msg: str = Field(min_length=1)
+    route: str | None = None
+    component: str | None = None
+
+
+@admin_router.post("/logs", status_code=201)
+def inject_log(body: InjectLog, state: State) -> dict[str, str]:
+    state.logs.emit(body.level, body.msg, route=body.route, component=body.component)
+    return {"status": "logged"}

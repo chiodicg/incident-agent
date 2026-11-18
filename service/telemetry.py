@@ -167,6 +167,7 @@ def p95(values: list[float]) -> float:
 class MetricStore:
     def __init__(self, clock: Clock) -> None:
         self._clock = clock
+        self._since = clock.now()  # collection start: earlier buckets have no data, not zeros
         self._gauges: dict[str, list[tuple[datetime, float]]] = {name: [] for name in GAUGES}
         self._requests: list[RequestSample] = []
         self._upstream: list[tuple[datetime, int]] = []
@@ -224,7 +225,10 @@ class MetricStore:
             elif name == "error_rate":
                 values = [sum(r.status >= 500 for r in b) / len(b) if b else None for b in requests]
             elif name == "request_rate":
-                values = [len(b) / bucket_minutes for b in requests]
+                values = [
+                    self._rate(len(b), now - width * (n_buckets - 1 - i), width)
+                    for i, b in enumerate(requests)
+                ]
             elif name == "upstream_status_counts":
                 metrics[name] = self._upstream_summary(bucket_of, n_buckets)
                 continue
@@ -246,6 +250,13 @@ class MetricStore:
             ],
             "metrics": metrics,
         }
+
+    def _rate(self, count: int, bucket_end: datetime, width: timedelta) -> float | None:
+        """Requests per minute over the part of the bucket after collection started."""
+        covered = min(width, bucket_end - self._since)
+        if covered <= timedelta(0):
+            return None
+        return count / (covered / timedelta(minutes=1))
 
     def _upstream_summary(self, bucket_of: Any, n_buckets: int) -> dict:
         buckets: list[dict[str, int]] = [{} for _ in range(n_buckets)]
