@@ -220,7 +220,7 @@ Per run, we record:
 uv sync                                         # install deps
 uv run uvicorn service.main:app --port 8000     # run the service locally
 docker compose up --build                       # or run it in Docker
-uv run python -m agent.cli --alert alerts/example.json   # run agent on one alert
+uv run python -m agent.cli --alert alerts/db_down.json --model anthropic:claude-opus-5-5 [--condition soft_prior] [--budget 4] [--trace-out trace.json]   # run agent on one alert (service must already be in the scenario state)
 uv run python -m eval.run                       # full matrix (prints cost estimate, asks to confirm)
 uv run python -m eval.run --fault bad_deploy_config --condition unguided --budget 8 --runs 1
 uv run python -m eval.run --resume eval/results/<file>.jsonl

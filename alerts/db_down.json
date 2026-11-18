@@ -1,0 +1,7 @@
+{
+  "name": "HighErrorRate",
+  "severity": "critical",
+  "summary": "5xx error rate above 20% on the orders service for 5 minutes",
+  "fired_at": "2026-11-02T09:30:00Z",
+  "labels": {"service": "orders"}
+}
