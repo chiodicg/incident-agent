@@ -63,6 +63,7 @@ class Scenario(_Frozen):
     alert: AlertSpec
     true_category: RootCause
     reference_explanation: str  # for the judges
+    secondary_issue: str | None = None  # a real but non-causal problem (fault 15); judges only
     decisive_evidence: tuple[Evidence, ...] = Field(min_length=1)  # any one counts
     cheapest_path: tuple[str, ...] = Field(min_length=1)  # tool names, for step efficiency
 

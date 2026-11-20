@@ -123,7 +123,7 @@ DATA_STATUSES: dict[str, set[int]] = {"/health": {503}}
 def tool_specs() -> list[ToolSpec]:
     """The four diagnostic tools plus submit_diagnosis, in a fixed order."""
     specs = [
-        ToolSpec(name=t.name, description=t.description, parameters=_schema(t.args))
+        ToolSpec(name=t.name, description=t.description, parameters=schema_for(t.args))
         for t in DIAGNOSTIC_TOOLS.values()
     ]
     specs.append(
@@ -133,7 +133,7 @@ def tool_specs() -> list[ToolSpec]:
                 "Submit your final diagnosis and end the investigation. The proposed fix is "
                 "recorded for a human to review; it is never executed."
             ),
-            parameters=_schema(Diagnosis),
+            parameters=schema_for(Diagnosis),
         )
     )
     return specs
@@ -198,7 +198,7 @@ class ToolBox:
         )
 
 
-def _schema(model: type[BaseModel]) -> dict[str, Any]:
+def schema_for(model: type[BaseModel]) -> dict[str, Any]:
     """JSON Schema without pydantic's auto-generated titles (noise in the prompt)."""
     return _strip_titles(model.model_json_schema())
 
